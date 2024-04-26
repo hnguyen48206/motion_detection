@@ -1,0 +1,87 @@
+<body>
+
+    <video id="videosrc" width="500px" height="300px" controls>
+        <source src="" type="video/mp4">
+        <source src="https://videos.pexels.com/video-files/5100041/5100041-uhd_3840_2160_30fps.mp4" type="video/mp4">
+    </video>
+
+    <canvas width="500px" height="300px" id="renderer"></canvas>
+
+
+    <script>
+
+        function onOpenCvReady() {
+            console.log('CV Ready');
+            // Your OpenCV.js code goes here
+            const video = document.getElementById('videosrc');
+            const canvas = document.getElementById('renderer');
+            const context = canvas.getContext('2d');
+            let src = new cv.Mat(video.height, video.width, cv.CV_8UC4);
+            let dst = new cv.Mat(video.height, video.width, cv.CV_8UC1);
+            let gray = new cv.Mat();
+            let cap = new cv.VideoCapture(video);
+            let prevGray = new cv.Mat(video.height, video.width, cv.CV_8UC1);
+            let diff = new cv.Mat(video.height, video.width, cv.CV_8UC1);
+            function processVideo() {
+                try {
+                    if (!video.paused && !video.ended) {
+                        //Bước 1, lấy frame từ videoCapture vào image src
+                        cap.read(src);
+                        //Bước 2, áp dụng greyscale cho ảnh. Tiếp đó làm mịn ảnh
+                        cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+                        cv.GaussianBlur(gray, gray, new cv.Size(21, 21), 0, 0, cv.BORDER_DEFAULT);
+                        //Bước 3, so sánh điểm khác biệt giữa 2 ảnh trước sau
+                        cv.absdiff(gray, prevGray, diff);
+                        //Bước 4, đặt ngưỡng để loại bỏ các khác biệt nhỏ hơn ngưỡng
+                        cv.threshold(diff, diff, 25, 255, cv.THRESH_BINARY);
+                        //Bước 5, đặt bộ lọc để làm liền các khối khác biệt
+                        cv.dilate(diff, diff, cv.Mat.ones(5, 5, cv.CV_8U), new cv.Point(-1, -1), 1);
+                        //Bước 6, tìm danh sách các khối liền
+                        let contours = new cv.MatVector();
+                        let hierarchy = new cv.Mat();
+                        cv.findContours(diff, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+
+                        let motionDetected = false;
+                        //Bước 7, đi qua từng khối, vẽ khung bọc và lấy vị trí
+                        for (let i = 0; i < contours.size(); ++i) {
+                            let cnt = contours.get(i);
+                            //Lấy vị trí khung
+                            let rect = cv.boundingRect(cnt);
+                            if (rect.width > 10 && rect.height > 10) {
+                                let color = new cv.Scalar(255, 0, 0, 255);
+                                //Bước 8, vẽ - áp dụng vị trí khung vào ảnh gốc
+                                cv.rectangle(src, new cv.Point(rect.x, rect.y), new cv.Point(rect.x + rect.width, rect.y + rect.height), color, 2);
+                                // Set motion detected to true
+                                motionDetected = true;
+                            }
+                            cnt.delete();
+                        }
+
+                        // If motion is detected, trigger the notification
+                        if (motionDetected) {
+                            console.log('Motion detected!');
+                        }
+
+                        // Show the processed frame on the canvas
+                        cv.imshow('renderer', src);
+                        // Store the current grayscale image as the previous one for the next iteration
+                        prevGray = gray.clone();
+
+                        // Clean up
+                        contours.delete(); hierarchy.delete();
+                        requestAnimationFrame(processVideo);
+                    }
+                } catch (err) {
+                    console.error(err);
+                }
+            }
+            // Start processing when the video is playing
+            video.addEventListener('play', () => {
+                requestAnimationFrame(processVideo);
+            });
+        }
+    </script>
+
+    <script async onload="onOpenCvReady();" src="https://docs.opencv.org/3.3.1/opencv.js"
+        type="text/javascript"></script>
+</body>
